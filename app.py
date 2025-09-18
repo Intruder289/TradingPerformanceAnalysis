@@ -144,12 +144,18 @@ if analyze_button:
                 fig_pnl_symbol.update_layout(template='plotly_white')
                 st.plotly_chart(fig_pnl_symbol, use_container_width=True)
 
+                # replace type with 'Buy' and 'Sell'
+                trade_data['type'] = trade_data['type'].replace({mt5.DEAL_TYPE_BUY: 'Sell', mt5.DEAL_TYPE_SELL: 'Buy'})
+
+                #filter out trades with profit 0
+                trade_data = trade_data[trade_data['profit'] != 0]
+                
                 # --- Detailed History Sections ---
                 with st.expander("📂 View Detailed Trade History"):
                     st.dataframe(
                         trade_data[[
-                            'time', 'ticket', 'order', 'type', 'entry', 
-                            'symbol', 'volume', 'price', 'profit', 'comment'
+                            'time', 'symbol', 'ticket', 'type', 
+                             'volume', 'price', 'profit', 'comment'
                         ]],
                         use_container_width=True
                     )
@@ -157,7 +163,7 @@ if analyze_button:
                 if not balance_data.empty:
                     with st.expander("💰 View Deposits & Withdrawals"):
                         st.dataframe(
-                            balance_data[['time', 'ticket', 'type', 'profit', 'comment']],
+                            balance_data[['time', 'ticket', 'profit']],
                             use_container_width=True
                         )
 else:
