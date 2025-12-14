@@ -3,6 +3,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
+import altair as alt
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -23,7 +24,7 @@ def connect_to_mt5():
     return True
 
 # Function to fetch trade history within a date range
-@st.cache_data(ttl=600) # Cache data for 10 minutes
+@st.cache_data(ttl=5) # Cache data for 10 minutes
 def get_trade_history(start_date, end_date):
     """Fetches trading deals, converts them to a pandas DataFrame."""
     deals = mt5.history_deals_get(start_date, end_date)
@@ -105,7 +106,7 @@ if analyze_button:
                 avg_win = wins['profit'].mean() if winning_trades > 0 else 0
                 avg_loss = abs(losses['profit'].mean()) if losing_trades > 0 else 0
 
-                # --- Display Key Performance Indicators (KPIs) ---
+                # ------------ Display Key Performance Indicators (KPIs) --------------------
                 st.header("📊 Overall Performance")
                 
                 kpi_cols = st.columns(4)
@@ -114,10 +115,10 @@ if analyze_button:
                 kpi_cols[2].metric(label="Win Rate (%)", value=f"{win_rate:.2f}%")
                 kpi_cols[3].metric(label="Profit Factor", value=f"{profit_factor:.2f}")
 
-                # --- Charts and Visualizations ---
+                # ------------------- Charts and Visualizations ----------------------------
                 st.header("📈 Visual Analysis")
 
-                # 1. Cumulative Profit (Equity Curve)
+                # ----------------Cumulative Profit (Equity Curve)-------------------------
                 trade_data['cumulative_profit'] = trade_data['profit'].cumsum()
                 fig_equity = px.line(
                     trade_data, 
@@ -129,7 +130,7 @@ if analyze_button:
                 fig_equity.update_layout(template='plotly_white')
                 st.plotly_chart(fig_equity, use_container_width=True)
 
-                # 2. Profit/Loss by Symbol
+                # --------------------Profit/Loss by Symbol---------------------------
                 profit_by_symbol = closing_deals.groupby('symbol')['profit'].sum().sort_values()
                 fig_pnl_symbol = px.bar(
                     profit_by_symbol,
@@ -144,13 +145,82 @@ if analyze_button:
                 fig_pnl_symbol.update_layout(template='plotly_white')
                 st.plotly_chart(fig_pnl_symbol, use_container_width=True)
 
+                #----------------------------Daily profit or loss-----------------------
+                
+                #Data Preparation
+                trade_data['time'] = pd.to_datetime(trade_data['time'])
+                trade_data['Date'] = trade_data['time'].dt.date
+
+                # Calculate the sum of 'profit' for each unique 'Date'
+                daily_pnl = trade_data.groupby('Date')['profit'].sum().reset_index()
+                daily_pnl.columns = ['Date', 'Daily P&L'] 
+                daily_pnl['Date'] = pd.to_datetime(daily_pnl['Date'])
+                daily_pnl = daily_pnl.sort_values('Date')
+
+                fig_pnl_daily = px.bar(
+                    daily_pnl,
+                    x='Date',
+                    y='Daily P&L', 
+                    title='Daily Profit & Loss (P&L) Summary',
+                    labels={'Date': 'Date', 'Daily P&L': 'Daily P&L ($)'},
+                    color='Daily P&L',
+                    color_continuous_scale=px.colors.diverging.RdYlGn,
+                    text_auto='.2f' 
+                )
+                fig_pnl_daily.update_layout(template='plotly_white')
+                fig_pnl_daily.update_xaxes(
+                    dtick="D1",
+                    tickformat="%b %d\n%Y",
+                    showgrid=True
+                )  
+                st.plotly_chart(fig_pnl_daily, use_container_width=True)
+                
+                
                 # replace type with 'Buy' and 'Sell'
                 trade_data['type'] = trade_data['type'].replace({mt5.DEAL_TYPE_BUY: 'Sell', mt5.DEAL_TYPE_SELL: 'Buy'})
 
                 #filter out trades with profit 0
                 trade_data = trade_data[trade_data['profit'] != 0]
+
+                # Average Profit
+                profitable_trades = trade_data[trade_data['profit'] > 0]
+                profit_column = profitable_trades['profit']
+                average_profit = profit_column.sum() / profit_column.count() if profit_column.count() > 0 else 0
+
+                # Average Loss
+                non_profitable_trades = trade_data[trade_data['profit'] < 0]
+                loss_column = non_profitable_trades['profit']
+                if loss_column.count() > 0:
+                    average_loss = abs(loss_column.sum() / loss_column.count())
+                else: 
+                    average_loss = 0
+                    
+                # Absolute Profitability (Net P&L)
+                net_profit_loss = balance_data['profit'].sum()
+                bagged = -net_profit_loss 
                 
-                # --- Detailed History Sections ---
+                st.subheader("Key Trading Metrics Summary")
+                col_profit, col_loss, col_bagged = st.columns(3)
+                with col_profit:
+                    st.metric(
+                        label="Average Profit per Win",
+                        value=f"${average_profit:,.2f}", 
+                    )
+                with col_loss:
+                    st.metric(
+                        label="Average Loss per Loss",
+                        value=f"${average_loss:,.2f}", 
+                    )
+                with col_bagged:
+                    st.metric(
+                        label="Absolute Withdraw to Deposit",
+                        value=f"${bagged:,.2f}",
+                        delta="Positive" if bagged > 0 else "Negative",
+                        delta_color="normal" 
+                    )
+
+
+                # ------------------Detailed History Sections ----------------------
                 with st.expander("📂 View Detailed Trade History"):
                     st.dataframe(
                         trade_data[[
@@ -159,7 +229,7 @@ if analyze_button:
                         ]],
                         use_container_width=True
                     )
-                
+                #------------------------Withdraws--------------------------------
                 if not balance_data.empty:
                     with st.expander("💰 View Deposits & Withdrawals"):
                         st.dataframe(
